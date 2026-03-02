@@ -84,7 +84,10 @@ pub fn run() !void {
         try out.writeAll(p.label);
         try out.writeAll("\", \"description\": \"Default model: ");
         try out.writeAll(p.default_model);
-        try out.writeAll("\" }");
+        try out.writeAll("\"");
+        // Mark first provider (openrouter) as recommended
+        if (i == 0) try out.writeAll(", \"recommended\": true");
+        try out.writeAll(" }");
         if (i < onboard.known_providers.len - 1) {
             try out.writeAll(",");
         }
@@ -96,7 +99,7 @@ pub fn run() !void {
         \\
     );
 
-    // Step 2: api_key (secret, conditional)
+    // Step 2: api_key (secret, conditional — hidden for local providers)
     try out.writeAll(
         \\      {
         \\        "id": "api_key",
@@ -104,7 +107,7 @@ pub fn run() !void {
         \\        "description": "Your provider API key",
         \\        "type": "secret",
         \\        "required": true,
-        \\        "condition": { "step": "provider", "not_equals": "ollama" }
+        \\        "condition": { "step": "provider", "not_in": "ollama,lm-studio,claude-cli,codex-cli" }
         \\      },
         \\
     );
@@ -122,7 +125,7 @@ pub fn run() !void {
         \\
     );
 
-    // Step 4: memory (select)
+    // Step 4: memory (select, default: sqlite)
     try out.writeAll(
         \\      {
         \\        "id": "memory",
@@ -130,6 +133,7 @@ pub fn run() !void {
         \\        "description": "How the agent stores conversation history",
         \\        "type": "select",
         \\        "required": true,
+        \\        "default_value": "sqlite",
         \\        "options": [
         \\
     );
@@ -138,7 +142,9 @@ pub fn run() !void {
         try out.writeAll(name);
         try out.writeAll("\", \"label\": \"");
         try out.writeAll(name);
-        try out.writeAll("\" }");
+        try out.writeAll("\"");
+        if (std.mem.eql(u8, name, "sqlite")) try out.writeAll(", \"recommended\": true");
+        try out.writeAll(" }");
         if (i < onboard.wizard_memory_backend_order.len - 1) {
             try out.writeAll(",");
         }
@@ -150,7 +156,7 @@ pub fn run() !void {
         \\
     );
 
-    // Step 5: tunnel (select)
+    // Step 5: tunnel (select, default: none)
     try out.writeAll(
         \\      {
         \\        "id": "tunnel",
@@ -158,6 +164,7 @@ pub fn run() !void {
         \\        "description": "Expose your agent to the internet",
         \\        "type": "select",
         \\        "required": true,
+        \\        "default_value": "none",
         \\        "options": [
         \\
     );
@@ -166,7 +173,9 @@ pub fn run() !void {
         try out.writeAll(name);
         try out.writeAll("\", \"label\": \"");
         try out.writeAll(name);
-        try out.writeAll("\" }");
+        try out.writeAll("\"");
+        if (std.mem.eql(u8, name, "none")) try out.writeAll(", \"recommended\": true");
+        try out.writeAll(" }");
         if (i < onboard.tunnel_options.len - 1) {
             try out.writeAll(",");
         }
@@ -178,7 +187,7 @@ pub fn run() !void {
         \\
     );
 
-    // Step 6: autonomy (select)
+    // Step 6: autonomy (select, default: supervised)
     try out.writeAll(
         \\      {
         \\        "id": "autonomy",
@@ -186,6 +195,7 @@ pub fn run() !void {
         \\        "description": "How much freedom the agent has",
         \\        "type": "select",
         \\        "required": true,
+        \\        "default_value": "supervised",
         \\        "options": [
         \\
     );
@@ -194,7 +204,9 @@ pub fn run() !void {
         try out.writeAll(name);
         try out.writeAll("\", \"label\": \"");
         try out.writeAll(name);
-        try out.writeAll("\" }");
+        try out.writeAll("\"");
+        if (std.mem.eql(u8, name, "supervised")) try out.writeAll(", \"recommended\": true");
+        try out.writeAll(" }");
         if (i < onboard.autonomy_options.len - 1) {
             try out.writeAll(",");
         }
@@ -206,7 +218,7 @@ pub fn run() !void {
         \\
     );
 
-    // Step 7: channels (multi_select)
+    // Step 7: channels (multi_select, all selected by default)
     try out.writeAll(
         \\      {
         \\        "id": "channels",
@@ -214,6 +226,15 @@ pub fn run() !void {
         \\        "description": "Messaging channels to enable",
         \\        "type": "multi_select",
         \\        "required": false,
+        \\        "default_value": "
+    );
+    // Build comma-separated default_value of all channel keys
+    for (channel_catalog.known_channels, 0..) |ch, i| {
+        if (i > 0) try out.writeAll(",");
+        try out.writeAll(ch.key);
+    }
+    try out.writeAll(
+        \\",
         \\        "options": [
         \\
     );
@@ -234,14 +255,15 @@ pub fn run() !void {
         \\
     );
 
-    // Step 8: gateway_port (number)
+    // Step 8: gateway_port (number, default: 3000)
     try out.writeAll(
         \\      {
         \\        "id": "gateway_port",
         \\        "title": "Gateway Port",
         \\        "description": "HTTP gateway listen port",
         \\        "type": "number",
-        \\        "required": true
+        \\        "required": true,
+        \\        "default_value": "3000"
         \\      }
         \\
     );
