@@ -423,12 +423,16 @@ pub fn curlGet(allocator: Allocator, url: []const u8, headers: []const []const u
 /// Returns null if no proxy is set.
 /// Caller owns returned memory.
 var proxy_override_value: ?[]u8 = null;
+var proxy_override_mutex: std.Thread.Mutex = .{};
 
 pub const ProxyOverrideError = error{OutOfMemory};
 
 /// Set process-wide proxy override from config.
 /// When set, this value has higher priority than proxy environment variables.
 pub fn setProxyOverride(proxy: ?[]const u8) ProxyOverrideError!void {
+    proxy_override_mutex.lock();
+    defer proxy_override_mutex.unlock();
+
     if (proxy_override_value) |existing| {
         std.heap.page_allocator.free(existing);
         proxy_override_value = null;
@@ -448,8 +452,12 @@ fn normalizeProxyEnvValue(allocator: Allocator, val: []const u8) !?[]const u8 {
 }
 
 pub fn getProxyFromEnv(allocator: Allocator) !?[]const u8 {
-    if (proxy_override_value) |override| {
-        return try allocator.dupe(u8, override);
+    {
+        proxy_override_mutex.lock();
+        defer proxy_override_mutex.unlock();
+        if (proxy_override_value) |override| {
+            return try allocator.dupe(u8, override);
+        }
     }
 
     const env_vars = [_][]const u8{ "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY" };

@@ -1091,15 +1091,43 @@ pub const HttpRequestConfig = struct {
     pub fn isValidProxyUrl(raw: []const u8) bool {
         const trimmed = std.mem.trim(u8, raw, " \t\r\n");
         if (trimmed.len == 0) return false;
-        const schemes = [_][]const u8{ "http://", "https://", "socks5://" };
-        for (schemes) |scheme| {
-            if (std.mem.startsWith(u8, trimmed, scheme)) {
-                const rest = trimmed[scheme.len..];
-                if (rest.len == 0) return false;
-                return std.mem.indexOfAny(u8, rest, " \t\r\n") == null;
-            }
+        if (std.mem.indexOfAny(u8, trimmed, " \t\r\n") != null) return false;
+        if (std.mem.indexOfAny(u8, trimmed, "?#") != null) return false;
+
+        const uri = std.Uri.parse(trimmed) catch return false;
+        const scheme_ok = std.ascii.eqlIgnoreCase(uri.scheme, "http") or
+            std.ascii.eqlIgnoreCase(uri.scheme, "https") or
+            std.ascii.eqlIgnoreCase(uri.scheme, "socks5");
+        if (!scheme_ok) return false;
+
+        const host_comp = uri.host orelse return false;
+        const host = switch (host_comp) {
+            .raw => |h| h,
+            .percent_encoded => |h| blk: {
+                // Reject percent-escaped hosts like %31%32%37.0.0.1.
+                if (std.mem.indexOfScalar(u8, h, '%') != null) return false;
+                break :blk h;
+            },
+        };
+        if (host.len == 0) return false;
+        if (host[0] == ':') return false;
+        if (std.mem.indexOfAny(u8, host, " \t\r\n") != null) return false;
+
+        if (host[0] == '[') {
+            const close = std.mem.indexOfScalar(u8, host, ']') orelse return false;
+            if (close != host.len - 1) return false;
         }
-        return false;
+
+        if (uri.port) |port| {
+            if (port == 0) return false;
+        }
+
+        const path = switch (uri.path) {
+            .raw => |p| p,
+            .percent_encoded => |p| p,
+        };
+        if (path.len > 0 and !std.mem.eql(u8, path, "/")) return false;
+        return true;
     }
 };
 
@@ -1296,10 +1324,15 @@ test "HttpRequestConfig proxy URL validation" {
     try std.testing.expect(HttpRequestConfig.isValidProxyUrl("http://127.0.0.1:8080"));
     try std.testing.expect(HttpRequestConfig.isValidProxyUrl("https://proxy.example.com:8443"));
     try std.testing.expect(HttpRequestConfig.isValidProxyUrl("socks5://127.0.0.1:1080"));
+    try std.testing.expect(HttpRequestConfig.isValidProxyUrl("http://proxy.example.com/"));
     try std.testing.expect(!HttpRequestConfig.isValidProxyUrl(""));
     try std.testing.expect(!HttpRequestConfig.isValidProxyUrl("proxy.example.com:8080"));
     try std.testing.expect(!HttpRequestConfig.isValidProxyUrl("ftp://proxy.example.com:21"));
     try std.testing.expect(!HttpRequestConfig.isValidProxyUrl("http://"));
+    try std.testing.expect(!HttpRequestConfig.isValidProxyUrl("http:///"));
+    try std.testing.expect(!HttpRequestConfig.isValidProxyUrl("http://:8080"));
+    try std.testing.expect(!HttpRequestConfig.isValidProxyUrl("http://proxy.example.com/path"));
+    try std.testing.expect(!HttpRequestConfig.isValidProxyUrl("http://proxy.example.com?x=1"));
 }
 
 test "WebConfig normalizePath trims and normalizes" {

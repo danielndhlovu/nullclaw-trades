@@ -5,7 +5,9 @@ const DEFAULT_MAX_API_ERROR_CHARS: usize = 200;
 const MIN_MAX_API_ERROR_CHARS: usize = 200;
 const MAX_MAX_API_ERROR_CHARS: usize = 10_000;
 
-var max_api_error_chars_override: ?usize = null;
+const NO_API_ERROR_LIMIT_OVERRIDE: usize = 0;
+var max_api_error_chars_override: std.atomic.Value(usize) =
+    std.atomic.Value(usize).init(NO_API_ERROR_LIMIT_OVERRIDE);
 
 pub const ApiErrorLimitOverrideError = error{OutOfRange};
 
@@ -17,10 +19,10 @@ pub fn setApiErrorLimitOverride(limit: ?u32) ApiErrorLimitOverrideError!void {
         if (n < MIN_MAX_API_ERROR_CHARS or n > MAX_MAX_API_ERROR_CHARS) {
             return error.OutOfRange;
         }
-        max_api_error_chars_override = n;
+        max_api_error_chars_override.store(n, .release);
         return;
     }
-    max_api_error_chars_override = null;
+    max_api_error_chars_override.store(NO_API_ERROR_LIMIT_OVERRIDE, .release);
 }
 
 fn readMaxApiErrorCharsFromEnv() usize {
@@ -39,7 +41,8 @@ fn readMaxApiErrorCharsFromEnv() usize {
 }
 
 fn getMaxApiErrorChars() usize {
-    if (max_api_error_chars_override) |n| return n;
+    const override = max_api_error_chars_override.load(.acquire);
+    if (override != NO_API_ERROR_LIMIT_OVERRIDE) return override;
     if (builtin.is_test) return DEFAULT_MAX_API_ERROR_CHARS;
     return readMaxApiErrorCharsFromEnv();
 }

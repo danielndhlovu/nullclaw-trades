@@ -259,7 +259,7 @@ pub const AnthropicProvider = struct {
         const resp_body = if (is_oauth)
             curlPostOAuth(allocator, url, body, auth_hdr, version_hdr) catch return error.AnthropicApiError
         else
-            root.curlPost(allocator, url, body, &.{ auth_hdr, version_hdr }) catch return error.AnthropicApiError;
+            root.curlPostTimed(allocator, url, body, &.{ auth_hdr, version_hdr }, 0) catch return error.AnthropicApiError;
         defer allocator.free(resp_body);
 
         return parseTextResponse(allocator, resp_body);
