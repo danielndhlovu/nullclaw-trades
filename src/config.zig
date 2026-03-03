@@ -222,9 +222,14 @@ pub const Config = struct {
         }
         const allocator = arena_ptr.allocator();
 
-        const home = platform.getHomeDir(allocator) catch return error.NoHomeDir;
-
-        const config_dir = try std.fs.path.join(allocator, &.{ home, ".nullclaw" });
+        // NULLCLAW_HOME overrides the default config directory (~/.nullclaw/).
+        const config_dir = std.process.getEnvVarOwned(allocator, "NULLCLAW_HOME") catch |err| switch (err) {
+            error.EnvironmentVariableNotFound => blk: {
+                const home = platform.getHomeDir(allocator) catch return error.NoHomeDir;
+                break :blk try std.fs.path.join(allocator, &.{ home, ".nullclaw" });
+            },
+            else => return err,
+        };
         const config_path = try std.fs.path.join(allocator, &.{ config_dir, "config.json" });
         const default_workspace_dir = try std.fs.path.join(allocator, &.{ config_dir, "workspace" });
 
@@ -683,6 +688,10 @@ pub const Config = struct {
         if (self.diagnostics.api_error_max_chars) |n| {
             try w.print(",\n    \"api_error_max_chars\": {d}", .{n});
         }
+        try w.print(",\n    \"token_usage_ledger_enabled\": {s}", .{if (self.diagnostics.token_usage_ledger_enabled) "true" else "false"});
+        try w.print(",\n    \"token_usage_ledger_window_hours\": {d}", .{self.diagnostics.token_usage_ledger_window_hours});
+        try w.print(",\n    \"token_usage_ledger_max_bytes\": {d}", .{self.diagnostics.token_usage_ledger_max_bytes});
+        try w.print(",\n    \"token_usage_ledger_max_lines\": {d}", .{self.diagnostics.token_usage_ledger_max_lines});
         if (self.diagnostics.otel_endpoint != null or self.diagnostics.otel_service_name != null) {
             try w.print(",\n    \"otel\": {{", .{});
             var otel_first = true;
@@ -1346,6 +1355,10 @@ test "save roundtrip preserves diagnostics logging flags" {
     cfg.diagnostics.log_message_receipts = true;
     cfg.diagnostics.log_message_payloads = true;
     cfg.diagnostics.log_llm_io = true;
+    cfg.diagnostics.token_usage_ledger_enabled = false;
+    cfg.diagnostics.token_usage_ledger_window_hours = 6;
+    cfg.diagnostics.token_usage_ledger_max_bytes = 131072;
+    cfg.diagnostics.token_usage_ledger_max_lines = 2048;
     try cfg.save();
 
     const file = try std.fs.openFileAbsolute(config_path, .{});
@@ -1366,6 +1379,10 @@ test "save roundtrip preserves diagnostics logging flags" {
     try std.testing.expect(loaded.diagnostics.log_message_receipts);
     try std.testing.expect(loaded.diagnostics.log_message_payloads);
     try std.testing.expect(loaded.diagnostics.log_llm_io);
+    try std.testing.expect(!loaded.diagnostics.token_usage_ledger_enabled);
+    try std.testing.expectEqual(@as(u32, 6), loaded.diagnostics.token_usage_ledger_window_hours);
+    try std.testing.expectEqual(@as(u64, 131072), loaded.diagnostics.token_usage_ledger_max_bytes);
+    try std.testing.expectEqual(@as(u64, 2048), loaded.diagnostics.token_usage_ledger_max_lines);
 }
 
 test "save roundtrip preserves reliability settings" {
@@ -2246,7 +2263,7 @@ test "validation rejects relay ttl values outside supported ranges" {
 test "json parse diagnostics section" {
     const allocator = std.testing.allocator;
     const json =
-        \\{"diagnostics": {"backend": "otel", "log_tool_calls": true, "log_message_receipts": true, "log_message_payloads": true, "log_llm_io": true, "otel": {"endpoint": "http://localhost:4318", "service_name": "yc"}}}
+        \\{"diagnostics": {"backend": "otel", "log_tool_calls": true, "log_message_receipts": true, "log_message_payloads": true, "log_llm_io": true, "token_usage_ledger_enabled": false, "token_usage_ledger_window_hours": 12, "token_usage_ledger_max_bytes": 262144, "token_usage_ledger_max_lines": 4096, "otel": {"endpoint": "http://localhost:4318", "service_name": "yc"}}}
     ;
     var cfg = Config{ .workspace_dir = "/tmp/yc", .config_path = "/tmp/yc/config.json", .allocator = allocator };
     try cfg.parseJson(json);
@@ -2255,6 +2272,10 @@ test "json parse diagnostics section" {
     try std.testing.expect(cfg.diagnostics.log_message_receipts);
     try std.testing.expect(cfg.diagnostics.log_message_payloads);
     try std.testing.expect(cfg.diagnostics.log_llm_io);
+    try std.testing.expect(!cfg.diagnostics.token_usage_ledger_enabled);
+    try std.testing.expectEqual(@as(u32, 12), cfg.diagnostics.token_usage_ledger_window_hours);
+    try std.testing.expectEqual(@as(u64, 262144), cfg.diagnostics.token_usage_ledger_max_bytes);
+    try std.testing.expectEqual(@as(u64, 4096), cfg.diagnostics.token_usage_ledger_max_lines);
     try std.testing.expectEqualStrings("http://localhost:4318", cfg.diagnostics.otel_endpoint.?);
     try std.testing.expectEqualStrings("yc", cfg.diagnostics.otel_service_name.?);
     allocator.free(cfg.diagnostics.backend);
@@ -2653,6 +2674,33 @@ test "parse agents.defaults.model.primary" {
     try std.testing.expectEqualStrings("claude-opus-4", cfg.default_model.?);
     allocator.free(cfg.default_provider);
     allocator.free(cfg.default_model.?);
+}
+
+test "parse agents.defaults.model.primary custom provider supports versioned path" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const json =
+        \\{"agents":{"defaults":{"model":{"primary":"custom:https://api.example.com/openai/v2/minimaxai/minimax-m2.1"}}}}
+    ;
+    var cfg = Config{ .workspace_dir = "/tmp/yc", .config_path = "/tmp/yc/config.json", .allocator = allocator };
+    try cfg.parseJson(json);
+    try std.testing.expectEqualStrings("custom:https://api.example.com/openai/v2", cfg.default_provider);
+    try std.testing.expectEqualStrings("minimaxai/minimax-m2.1", cfg.default_model.?);
+}
+
+test "parse legacy default_provider with model-only primary preserves model" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const json =
+        \\{"default_provider":"openai","agents":{"defaults":{"model":{"primary":"gpt-5.2"}}}}
+    ;
+    var cfg = Config{ .workspace_dir = "/tmp/yc", .config_path = "/tmp/yc/config.json", .allocator = allocator };
+    try cfg.parseJson(json);
+    try std.testing.expect(cfg.legacy_default_provider_detected);
+    try std.testing.expectEqualStrings("openai", cfg.default_provider);
+    try std.testing.expectEqualStrings("gpt-5.2", cfg.default_model.?);
 }
 
 // verify that workspace override field (with backslashes) does not
