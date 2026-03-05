@@ -2,10 +2,12 @@ const std = @import("std");
 const builtin = @import("builtin");
 const platform = @import("../platform.zig");
 const tools_mod = @import("../tools/root.zig");
+const path_prefix = @import("../path_prefix.zig");
 const Tool = tools_mod.Tool;
 const skills_mod = @import("../skills.zig");
 const bootstrap_mod = @import("../bootstrap/root.zig");
 const BootstrapProvider = bootstrap_mod.BootstrapProvider;
+const pathStartsWith = path_prefix.pathStartsWith;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // System Prompt Builder
@@ -34,16 +36,6 @@ fn workspaceFileDeviceId(file: *const std.fs.File) ?u64 {
 
     const stat = std.posix.fstat(file.handle) catch return null;
     return @as(u64, @intCast(stat.dev));
-}
-
-fn pathStartsWith(path: []const u8, prefix: []const u8) bool {
-    if (!std.mem.startsWith(u8, path, prefix)) return false;
-    if (path.len == prefix.len) return true;
-    if (prefix.len > 0 and (prefix[prefix.len - 1] == '/' or prefix[prefix.len - 1] == '\\')) {
-        return true;
-    }
-    const c = path[prefix.len];
-    return c == '/' or c == '\\';
 }
 
 fn isWorkspaceBootstrapFilenameSafe(filename: []const u8) bool {

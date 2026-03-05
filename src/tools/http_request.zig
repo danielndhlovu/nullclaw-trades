@@ -116,7 +116,7 @@ pub const HttpRequestTool = struct {
                 return ToolResult{ .success = false, .output = "", .error_msg = msg };
             };
         }
-        const authority_host = stripHostBrackets(host);
+        const authority_host = net_security.stripHostBrackets(host);
         const connection = client.connectTcpOptions(.{
             .host = connect_host,
             .port = resolved_port,
@@ -257,13 +257,6 @@ fn buildRequestOptions(
         .redirect_behavior = .unhandled,
         .connection = connection,
     };
-}
-
-fn stripHostBrackets(host: []const u8) []const u8 {
-    if (std.mem.startsWith(u8, host, "[") and std.mem.endsWith(u8, host, "]")) {
-        return host[1 .. host.len - 1];
-    }
-    return host;
 }
 
 /// Parse headers from a JSON object string: {"Key": "Value", ...}
