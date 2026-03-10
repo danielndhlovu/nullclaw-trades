@@ -17,6 +17,7 @@ const log = std.log.scoped(.main);
 const Command = enum {
     agent,
     gateway,
+    trader,
     service,
     status,
     version,
@@ -37,6 +38,7 @@ const Command = enum {
 };
 
 const SERVICE_SUBCOMMANDS = "install|start|stop|restart|status|uninstall";
+const TRADER_SUBCOMMANDS = "start|dashboard";
 const CRON_SUBCOMMANDS = "list|add|add-agent|once|once-agent|remove|pause|resume|run|update|runs";
 const CHANNEL_SUBCOMMANDS = "list|start|status|add|remove";
 const SKILLS_SUBCOMMANDS = "list|install|remove|info";
@@ -56,6 +58,7 @@ const TOP_LEVEL_USAGE = std.fmt.comptimePrint(
     \\  onboard      Initialize workspace and configuration
     \\  agent        Start the AI agent loop
     \\  gateway      Start the gateway server (HTTP/WebSocket)
+    \\  trader       Crypto trading daemon operations
     \\  service      Manage OS service lifecycle
     \\  status       Show system status
     \\  version      Show CLI version
@@ -109,6 +112,7 @@ fn parseCommand(arg: []const u8) ?Command {
     const command_map = std.StaticStringMap(Command).initComptime(.{
         .{ "agent", .agent },
         .{ "gateway", .gateway },
+        .{ "trader", .trader },
         .{ "service", .service },
         .{ "status", .status },
         .{ "version", .version },
@@ -196,6 +200,7 @@ pub fn main() !void {
         .doctor => try yc.doctor.run(allocator),
         .help => printUsage(),
         .gateway => try runGateway(allocator, sub_args),
+        .trader => try runTrader(allocator, sub_args),
         .service => try runService(allocator, sub_args),
         .cron => try runCron(allocator, sub_args),
         .channel => try runChannel(allocator, sub_args),
@@ -248,6 +253,43 @@ fn applyGatewayDaemonOverrides(cfg: *yc.config.Config, sub_args: []const []const
 
     cfg.gateway.port = port;
     cfg.gateway.host = host;
+}
+
+// ── Trader ───────────────────────────────────────────────────────
+
+fn runTrader(allocator: std.mem.Allocator, sub_args: []const []const u8) !void {
+    if (sub_args.len < 1) {
+        std.debug.print("Usage: nullclaw trader <start|dashboard>\n", .{});
+        std.process.exit(1);
+    }
+
+    var cfg = yc.config.Config.load(allocator) catch {
+        std.debug.print("No config found -- run `nullclaw onboard` first\n", .{});
+        std.process.exit(1);
+    };
+    defer cfg.deinit();
+
+    if (!cfg.trader.enabled) {
+        std.debug.print("Trader is disabled in config. Set trader.enabled = true to use.\n", .{});
+        std.process.exit(1);
+    }
+
+    const subcmd = sub_args[0];
+    if (std.mem.eql(u8, subcmd, "start")) {
+        const trader_daemon = @import("trader/daemon.zig");
+        var daemon = try trader_daemon.TraderDaemon.init(allocator, &cfg);
+        defer daemon.deinit();
+
+        std.debug.print("Starting NullClaw Trader Daemon...\n", .{});
+        try daemon.start();
+
+        while (true) {
+            std.time.sleep(10 * std.time.ns_per_s);
+        }
+    } else {
+        std.debug.print("Unknown trader command: {s}\n", .{subcmd});
+        std.process.exit(1);
+    }
 }
 
 // ── Gateway ──────────────────────────────────────────────────────

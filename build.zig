@@ -493,6 +493,10 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
+    _ = b.addModule("trader", .{
+        .root_source_file = b.path("src/trader/daemon.zig"),
+    });
+
     // macOS host+target only: strip local symbols post-install.
     // Host `strip` cannot process ELF/PE during cross-builds.
     if (optimize != .Debug and builtin.os.tag == .macos and target.result.os.tag == .macos) {
