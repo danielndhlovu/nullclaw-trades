@@ -48,7 +48,7 @@ zig build -Dversion=2026.3.1
 - `channels`：裁剪编译进制中的渠道实现。
 - `engines`：裁剪 memory engine。
 - `target`：交叉编译目标。
-- `version`：覆盖版本字符串（CalVer）。
+- `version`：覆盖嵌入版本字符串（默认是 `dev`；release workflow 会注入 git tag）。
 
 ## 推荐工作流
 

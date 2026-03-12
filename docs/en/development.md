@@ -62,7 +62,7 @@ Notes:
 - `channels`: limit which channel implementations are compiled in
 - `engines`: limit memory engines in the build
 - `target`: cross-compile target triple
-- `version`: override the CalVer version string
+- `version`: override the embedded version string (`dev` by default; release workflow injects the git tag)
 
 ## Recommended Workflow
 
